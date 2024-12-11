@@ -10,19 +10,19 @@
 using namespace std;
 using namespace hnswlib;
 
-class StopW {
+class StopW {   //* stopwatch
     std::chrono::steady_clock::time_point time_begin;
  public:
-    StopW() {
+    StopW() {   //* capture currnet time
         time_begin = std::chrono::steady_clock::now();
     }
 
-    float getElapsedTimeMicro() {
+    float getElapsedTimeMicro() { //* calculate duration
         std::chrono::steady_clock::time_point time_end = std::chrono::steady_clock::now();
         return (std::chrono::duration_cast<std::chrono::microseconds>(time_end - time_begin).count());
     }
 
-    void reset() {
+    void reset() {  //* stopwatch reset to current time
         time_begin = std::chrono::steady_clock::now();
     }
 };
@@ -144,28 +144,31 @@ static size_t getCurrentRSS() {
 
 
 static void
-get_gt(
-    unsigned int *massQA,
-    unsigned char *massQ,
-    unsigned char *mass,
-    size_t vecsize,
-    size_t qsize,
-    L2SpaceI &l2space,
-    size_t vecdim,
-    vector<std::priority_queue<std::pair<int, labeltype>>> &answers,
-    size_t k) {
+get_gt(                     //* get answer index from ground-truth file
+    unsigned int *massQA,   //* answer index list
+    unsigned char *massQ,   //* pointer of query data start addr
+    unsigned char *mass,    //* pointer of vector data start addr
+    size_t vecsize,         //* # of vector data
+    size_t qsize,           //* # of query data
+    L2SpaceI &l2space,      //* object of calculating L2-distance
+    size_t vecdim,          //* vector dimension
+    vector<std::priority_queue<std::pair<int, labeltype>>> &answers,  //* object of final answer list
+    size_t k) {             //* top-k
     (vector<std::priority_queue<std::pair<int, labeltype >>>(qsize)).swap(answers);
-    DISTFUNC<int> fstdistfunc_ = l2space.get_dist_func();
+    //* create empty priority_quere with the size of query vector
+    //* swap this with answers
+    //*  --> then answers (final answer list) will be initialized to empty vector
+    DISTFUNC<int> fstdistfunc_ = l2space.get_dist_func();     //* get dist function from l2space opject (dummy code)
     cout << qsize << "\n";
     for (int i = 0; i < qsize; i++) {
         for (int j = 0; j < k; j++) {
-            answers[i].emplace(0.0f, massQA[1000 * i + j]);
+            answers[i].emplace(0.0f, massQA[1000 * i + j]);   //* Get top-k index of each query from gt file
         }
     }
 }
 
 static float
-test_approx(
+test_approx(          //* run ANN search and compare with gt
     unsigned char *massQ,
     size_t vecsize,
     size_t qsize,
@@ -177,30 +180,30 @@ test_approx(
     size_t total = 0;
     // uncomment to test in parallel mode:
     //#pragma omp parallel for
-    for (int i = 0; i < qsize; i++) {
-        std::priority_queue<std::pair<int, labeltype >> result = appr_alg.searchKnn(massQ + vecdim * i, k);
-        std::priority_queue<std::pair<int, labeltype >> gt(answers[i]);
-        unordered_set<labeltype> g;
-        total += gt.size();
+    for (int i = 0; i < qsize; i++) {           //* For each query,
+        std::priority_queue<std::pair<int, labeltype >> result = appr_alg.searchKnn(massQ + vecdim * i, k);  //* do HNSW search
+        std::priority_queue<std::pair<int, labeltype >> gt(answers[i]);   //* get answers of the query from gt
+        unordered_set<labeltype> g;             //* create unordered set 'g' to store the query's gt answer
+        total += gt.size();                     //* accumulate # of answers 
 
-        while (gt.size()) {
-            g.insert(gt.top().second);
-            gt.pop();
+        while (gt.size()) {                     //* For all gt answers
+            g.insert(gt.top().second);          //* put the first answer's index to 'g' set
+            gt.pop();                           //* and pop it
         }
 
-        while (result.size()) {
-            if (g.find(result.top().second) != g.end()) {
-                correct++;
+        while (result.size()) {                 //* For all ANN results,
+            if (g.find(result.top().second) != g.end()) { //* Find the index along gt index set
+                correct++;                              //* If there's matched index, count up correct
             } else {
             }
-            result.pop();
+            result.pop();                               //* and pop it
         }
     }
-    return 1.0f * correct / total;
+    return 1.0f * correct / total;              //* Return R@K
 }
 
 static void
-test_vs_recall(
+test_vs_recall(                            //* Sweep test (ef --> qps & r@k)
     unsigned char *massQ,
     size_t vecsize,
     size_t qsize,
@@ -209,28 +212,42 @@ test_vs_recall(
     vector<std::priority_queue<std::pair<int, labeltype>>> &answers,
     size_t k) {
     vector<size_t> efs;  // = { 10,10,10,10,10 };
+    //* generate ef testcase
     for (int i = k; i < 30; i++) {
         efs.push_back(i);
     }
     for (int i = 30; i < 100; i += 10) {
         efs.push_back(i);
     }
-    for (int i = 100; i < 500; i += 40) {
+    for (int i = 100; i < 500; i += 50) {
         efs.push_back(i);
     }
-    for (size_t ef : efs) {
-        appr_alg.setEf(ef);
-        StopW stopw = StopW();
+//* JW code start (save test result as .csv file)
+    int size_m = vecsize / 1000000;
+    std::string outfile = "test_" + std::to_string(size_m) + "M_top" + std::to_string(k) + ".csv";
+    std::ofstream fout (outfile);
+    if (fout.is_open()) {
+         fout << "ef,r@k,runtime(us),qps\n";
+//* JW code end
+    for (size_t ef : efs) {                     //* For each ef test case,
+        appr_alg.setEf(ef);                     //* set ANN ef config
+        StopW stopw = StopW();                  //* Stopwatch start to get search_time
 
-        float recall = test_approx(massQ, vecsize, qsize, appr_alg, vecdim, answers, k);
-        float time_us_per_query = stopw.getElapsedTimeMicro() / qsize;
+        float recall = test_approx(massQ, vecsize, qsize, appr_alg, vecdim, answers, k);    //* run test and get r@k
+        float time_us_per_query = stopw.getElapsedTimeMicro() / qsize;  //* Calculate qps
 
         cout << ef << "\t" << recall << "\t" << time_us_per_query << " us\n";
         if (recall > 1.0) {
             cout << recall << "\t" << time_us_per_query << " us\n";
             break;
         }
+        float qps = 1000000 / time_us_per_query;
+        fout << ef << "," << recall << "," << time_us_per_query << "," << qps << "\n";
     }
+//* jw code start (save test result as .csv file -> file close)
+    fout.close();
+    }
+//* jw code end
 }
 
 inline bool exists_test(const std::string &name) {
@@ -239,8 +256,10 @@ inline bool exists_test(const std::string &name) {
 }
 
 
-void sift_test1B() {
-    int subset_size_milllions = 200;
+//* void sift_test1B() {
+void sift_test1B(int subset_size_milllions) {
+    //* int subset_size_milllions = 200;
+    //*int subset_size_milllions = 10;  //* as kim et al. single sub-graph size for 4GB DRAM is 5M
     int efConstruction = 40;
     int M = 16;
 
@@ -354,7 +373,8 @@ void sift_test1B() {
 
 
     vector<std::priority_queue<std::pair<int, labeltype >>> answers;
-    size_t k = 1;
+//*    size_t k = 1;
+    size_t k = 10;
     cout << "Parsing gt:\n";
     get_gt(massQA, massQ, mass, vecsize, qsize, l2space, vecdim, answers, k);
     cout << "Loaded gt\n";

@@ -111,7 +111,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
         maxM_ = M_;
         maxM0_ = M_ * 2;
-        ef_construction_ = std::max(ef_construction, M_);
+        ef_construction_ = std::max(ef_construction, M_);       //* TODO ef_construction vs. ef_ (what's the difference)
         ef_ = 10;
 
         level_generator_.seed(random_seed);
@@ -1285,7 +1285,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 int size = getListCount(data);
                 metric_hops++;
                 metric_distance_computations+=size;
+        
 
+                
                 tableint *datal = (tableint *) (data + 1);
                 for (int i = 0; i < size; i++) {
                     tableint cand = datal[i];
